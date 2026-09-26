@@ -1,0 +1,11 @@
+# 唯一生成目录：编译产物、抽取的宿主类、打包产物、验证截屏与素材全在此
+/build/
+
+# 构建期依赖：不入库，由 tools/build.py 按需下载并做 SHA-256 校验
+/tools/lib/*.jar
+
+# 本机专属路径配置（与 SPW_INSTALL 配套，防止将来误提交）
+/local.properties
+
+# 执行 tools/*.py 产生的 Python 运行缓存
+__pycache__/

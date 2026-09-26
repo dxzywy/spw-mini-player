@@ -1,0 +1,65 @@
+{
+  "configs": [
+    {
+      "title": "迷你播放器",
+      "config": "config.json",
+      "preferences": [
+        {
+          "type": "button",
+          "title": "显示 / 隐藏迷你播放器",
+          "summary": "在桌面边缘显示或收起贴边小窗",
+          "arrow_type": "none",
+          "on_click": "com.spw.miniplayer.MiniPlayerPlugin.toggleMiniPlayer"
+        },
+        {
+          "type": "button",
+          "title": "收起为封面小窗",
+          "summary": "立即把迷你播放器收成封面悬浮窗",
+          "arrow_type": "none",
+          "on_click": "com.spw.miniplayer.MiniPlayerPlugin.collapseMiniPlayer"
+        },
+        {
+          "key": "auto_hide",
+          "type": "switch",
+          "title": "贴边自动收起",
+          "summary": "鼠标离开后自动收起为浮动的封面小窗，单击封面小窗即可重新展开",
+          "default_value": true
+        },
+        {
+          "key": "always_on_top",
+          "type": "switch",
+          "title": "窗口始终置顶",
+          "summary": "关闭后小窗可能被其他窗口遮挡",
+          "default_value": true
+        },
+        {
+          "key": "dock_edge",
+          "type": "list",
+          "title": "默认贴边位置",
+          "summary": "重新启动插件时小窗吸附的屏幕边缘",
+          "entries": ["右侧", "左侧", "顶部", "底部"],
+          "entry_values": ["right", "left", "top", "bottom"],
+          "default_value": "right"
+        },
+        {
+          "key": "hide_delay",
+          "type": "list",
+          "title": "自动收起延迟",
+          "summary": "鼠标离开后等待多久收起，单位为秒（1 秒 = 1000 毫秒）",
+          "entries": ["0.3 秒", "0.5 秒", "1 秒", "1.5 秒", "2 秒", "3 秒", "5 秒"],
+          "entry_values": ["0.3", "0.5", "1", "1.5", "2", "3", "5"],
+          "default_value": "0.5"
+        },
+        {
+          "key": "opacity",
+          "type": "list",
+          "title": "面板不透明度（%）",
+          "summary": "0 为完全透明，100 为完全不透明；低于 10 按 10 处理，避免窗口不可见",
+          "entries": ["0", "10", "20", "30", "40", "50", "60", "70", "80", "90", "100"],
+          "entry_values": ["0", "10", "20", "30", "40", "50", "60", "70", "80", "90", "100"],
+          "default_value": "80"
+        }
+      ]
+    }
+  ]
+}
