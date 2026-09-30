@@ -15,7 +15,7 @@
 ## 一、项目结构
 
 ```
-src/main/java/com/spw/miniplayer/   插件本体（15 个源文件）
+src/main/java/com/spw/miniplayer/   插件本体（17 个源文件）
 plugin/preference_config.json       宿主设置页声明（设置项与按钮入口）
 plugin/META-INF/                    扩展点注册与 PF4J 元数据
 plugin/LICENSES/                    随发行包分发的许可声明副本
@@ -41,6 +41,8 @@ build/                              构建产物（不入库）
 | `HostReflection` | 宿主类的加载与反射工具 |
 | `DesktopLyricsBridge` | 桌面歌词开关桥接 |
 | `HostThemeBridge` | 主题跟随桥接 |
+| `MainWindowBridge` | 唤起宿主主窗口（`AppConfig.updateMainWindowVisible` + AWT 前置兜底） |
+| `CoverTheme` | 从封面提取主题色，派生面板底色与进度条强调色 |
 | `MediaProbe` | 自行解析音频时长（FLAC / M4A/MP4 / MP3 / WAV / OGG） |
 | `CoverArtLoader` | 自行解析内嵌封面，失败时回退同目录图片 |
 | `Icons` | 矢量图标 |
@@ -143,6 +145,34 @@ python tools/build.py --set 1.2.3
 
 插件源码与验证代码中**禁止**出现 `x.y.z` 形式的字面量（构建时会强制校验并中止）。
 
+> ⚠️ `--bump` 是**非幂等**的：如果同一条命令被外部重跑（例如沙箱/CI 重试），版本会连升两级。
+> 需要确定版本时请用幂等的 `--set x.y.z`。
+
+### 2.6 发行包结构
+
+`.spmod` 与同名 `.zip` 是**字节完全相同**的 ZIP（宿主两种导入方式都接受）：
+
+```
+META-INF/MANIFEST.MF                    宿主「目录式描述符查找器」读的完整 Plugin-* 描述符
+classes/                                插件类路径（PF4J DefaultPluginClasspath）
+  META-INF/MANIFEST.MF                  插件描述符（第二份，双保险）
+  META-INF/extensions.idx               LegacyExtensionFinder 用
+  META-INF/services/<拓展点全限定名>     ServiceProviderExtensionFinder 用
+  preference_config.json               宿主设置页声明
+  LICENSES/                            随包分发的第三方许可副本
+lib/kotlin-stdlib-<版本>.jar           运行期依赖
+```
+
+两种拓展点发现机制都写，避免宿主版本差异导致找不到拓展。
+
+检查发行包**是否混入宿主代码必须解压后逐层做**：外层 ZIP 的文本搜索必然 0 命中（条目经 deflate
+压缩），且 `lib/` 下是**嵌套 JAR**，需要再解压一层看条目名。
+
+### 2.7 沙箱/环境注意事项
+
+- 本机 `rm` 被安全删除层拦截（`trash-failed`）；删除或覆盖文件失败时先怀疑「被占用」。
+- `grep … | head` 的 `$?` 取自 `head`（恒 0）；判「无匹配」必须用 grep 自身的退出码或捕获输出判空。
+
 ---
 
 ## 三、验证与测试
@@ -156,17 +186,31 @@ PF4J / spw API / kotlin 运行时组成测试 classpath，再编译并运行。
 python tools/harness.py config      # 配置读取语义（用宿主真实 ConfigHelper）
 python tools/harness.py delay       # 自动收起延迟的行为计时（会短暂显示窗口）
 python tools/harness.py preview     # 界面渲染与封面 / 时长解析自检
+python tools/harness.py features    # 打开播放器 / 进度条颜色 / 封面主题色自检
 python tools/harness.py load        # PF4J 加载链路 + 版本号一致性
 python tools/harness.py live        # 真机窗口截屏（会短暂显示窗口）
 python tools/harness.py stress [N]  # 展开 / 收起压力测试（会反复显示窗口）
 python tools/harness.py deadlock    # 卡死根因复现与修复验证
-python tools/harness.py all         # config + preview + load
+python tools/harness.py all         # config + features + preview + load
 ```
 
-注意 `all` 的组合是 **config + preview + load**，不含 `delay` / `stress` / `deadlock` / `live`。
+注意 `all` 的组合是 **config + features + preview + load**，不含 `delay` / `stress` / `deadlock` / `live`。
 
 对应源码：`HostConfigProbe`（config）、`HideDelayTest`（delay）、`DevPreview` / `LivePreview`
-（preview / live）、`PluginLoadTest`（load）、`StressTest`（stress）、`DeadlockRepro`（deadlock）。
+（preview / live）、`FeatureTest`（features）、`PluginLoadTest`（load）、`StressTest`（stress）、
+`DeadlockRepro`（deadlock）。
+
+`features` 的断言要点：
+
+1. **主窗口开关式切换**：命中测试能点到新按钮；四种场景（托盘策略的打开 / 收起、退出策略的收起 /
+   再打开）都会检查替身 `AppConfig` 的 `mainWindowVisible` 是否被改成了预期值 —— 尤其验证
+   「退出策略下收起时宿主状态**保持可见**」，即插件确实绕开了会退出应用的路径；同时确认宿主调用
+   落在 `spw-mini-host` 线程上。
+2. **进度条像素**等于配置的颜色。
+3. **面板底色像素**等于「封面主题色的 RGB + 用户设置的不透明度 alpha」，这是「主题色与不透明度
+   叠加」的机器可读证据。
+4. **配置项清理**：`preference_config.json` 里不再出现 `toggleMiniPlayer` / `collapseMiniPlayer`，
+   源码里不再出现「点击展开」与 `Theme.hintText` —— 防止旧文案 / 失效引用被改回来。
 
 ### 3.2 压力测试（stress）
 
@@ -238,8 +282,32 @@ python tools/harness.py all         # config + preview + load
   窗口会立即同步。访问器命名按 `getDesktopLyrics` / `isDesktopLyrics` / `getDesktopLyric` 依次探测，
   写入同理。
 - **主题跟随**（`HostThemeBridge`）：读取宿主主题设置；宿主设为「跟随系统」时读取系统应用主题。
+- **主窗口打开 / 收起**（`MainWindowBridge`）：宿主把「主窗口是否可见」放在 `AppConfig` 的
+  `mainWindowVisible` 状态上，写入入口是 `updateMainWindowVisible(boolean)`（注意同名 `setXxx`
+  在宿主里是**私有**的，只探测 getter / update 命名）。宿主自身的全局热键与播放服务走的正是这个
+  入口，所以调用后主窗口会真的恢复（包括最小化到托盘的场景）。
 
-两处桥接在解析前都会先判断 `isAvailable()`，避免重复解析。
+  **收起方向必须先读宿主的「关闭主窗口」策略**：`getCloseMainWindowStrategy()` 返回枚举
+  `com.xuncorp.voxzen.ui.screen.appearance.CloseMainWindowStrategy`，常量为 `SystemTray` /
+  `ExitProgress`（该枚举类的常量名在包内是明文，可用「改 major 为 55 再 javap」的办法确认）：
+
+  | 策略（按枚举名判定） | 插件的动作 |
+  |---|---|
+  | 名字含 `tray` | `updateMainWindowVisible(false)`，交回宿主自己的关闭流程 |
+  | 名字含 `exit` / `quit` / `close` | **绝不**调用宿主入口，只做 AWT `setExtendedState(ICONIFIED)` |
+  | 识别不出 | 按上一行处理（最保守） |
+
+  之所以不能用宿主入口兜底：宿主设置为「退出应用」时，关闭主窗口会结束整个进程。判定用反射读
+  `name()` 而不是依赖具体类型，宿主改包名/换枚举类也不会漏判。
+
+  另外 AWT 兜底这一层：从 `Frame.getFrames()` 里挑面积最大的可见窗口做 `toFront()`，
+  迷你小窗自身是 `JWindow`，天然排除。
+
+  由于「退出」策略下不能改宿主状态，插件用一个 `minimizedToTaskbar` 标记记录「上一次是我把窗口
+  最小化到任务栏的」，这样第三次点击仍能正确切回打开状态。
+
+三处桥接在解析前都会先判断 `isAvailable()`，避免重复解析；任何一处没对接上，都会由
+`HostBridgeWorker.prepare` 的定时重试兜底（2 分钟窗口内每 15 秒一次）。
 
 ### 4.3 元数据与时长解析（不依赖宿主接口）
 
@@ -257,25 +325,68 @@ python tools/harness.py all         # config + preview + load
 界面基于 AWT / Swing 自绘：`MiniWindow` 负责无边框置顶窗口与贴边吸附；`MiniPlayerView` 负责
 绘制封面、标题、进度与按钮并做命中判断；`Theme` 提供深 / 浅色调色板，随宿主主题切换。
 
-### 4.5 配置
+悬浮层（收起态）只画两枚按钮——左上「打开 / 收起主播放器」、右上「展开面板」，**刻意不写文字提示**：
+小窗本身只有 76px 见方，压在封面上的说明文字既挤又会常年遮住画面，图标 + 悬停高亮已足够表达。
 
-`PluginConfig` 把设置项落地为宿主工坊数据目录下的 `config.json`；设置项声明在
-`plugin/preference_config.json`，其中按钮入口通过 `on_click` 指向插件的
-`public static` 方法（宿主以反射调用，故必须是 `public static` 且无参）：
+### 4.5 封面主题色与进度条颜色
 
-- `com.spw.miniplayer.MiniPlayerPlugin.toggleMiniPlayer`
-- `com.spw.miniplayer.MiniPlayerPlugin.collapseMiniPlayer`
+`CoverTheme` 从当前封面提取主色，供两处使用：
+
+- **面板背景**（`panelTint`）：把封面缩到 32×32 后按 4bit/通道做直方图，用
+  「像素数 × 饱和度权重 × 中间亮度权重」挑出主色色桶并取均值（比简单平均更接近人眼感知）。
+  随后把亮度压进「能衬住文字」的区间（深色主题 0.13–0.30、浅色主题 0.72–0.93）、
+  给饱和度设上限（深色 0.58 / 浅色 0.45），再与主题面板原色混合 22%。
+- **进度条强调色**（`progressAccent`）：同一色相上提亮提饱和，保证压在面板上仍然清楚。
+
+**主题色与不透明度是叠加关系**：`panelTint` 返回的颜色**不带 alpha**，绘制时才由
+`MiniPlayerView.panelFillColor()` 取 RGB、再套上用户设置的 `panelAlpha`（悬停时 +10）。
+因此改不透明度不会冲掉主题色，改封面也不会冲掉不透明度——`features` 自检对这两点都有像素级断言。
+
+提取过程（逐像素扫描）放在专用线程 `spw-mini-theme` 上，EDT 只接收算好的颜色；
+深浅色主题切换时会用缓存的主色重新派生，不重新扫图。
+
+进度条颜色的配置解析（`MiniPlayerController.parseColor`）支持 `auto` / `#RGB` / `#RRGGBB` /
+`#AARRGGBB`，解析失败退化为「跟随封面」，再退化为主题强调色。
+
+### 4.6 配置
+
+`PluginConfig` 把设置项落地为宿主工坊数据目录下的 `config.json`；设置项全部声明在
+`plugin/preference_config.json`。
+
+- **小窗显示 / 隐藏**用 `mini_player_visible`（`switch`，默认开）而不是按钮：开关是**持久状态**，
+  关掉后小窗保持隐藏，重启插件也不会自己冒出来，语义比一次性按钮明确，控件风格也和其余设置项一致。
+  它由 `MiniPlayerController.applyVisibility()` 在 `createUi()` 与每次 `applyConfig()` 时统一兑现。
+- 进度条颜色用的是 `edittext` 类型（宿主支持的自由文本输入；同机的 Steam Rich Presence 插件也在用），
+  这样用户可以填任意颜色值，不受下拉选项数量限制。
+
+> 宿主也支持 `button` 类型：`on_click` 指向插件的 **`public static` 无参方法**（宿主以反射调用）。
+> 当前配置项已全部改为开关 / 下拉 / 文本，因此插件主类里不再有这类入口；若将来要加回按钮，
+> 注意方法必须是 `public static` 且无参。
 
 > 「自动收起延迟」与「面板不透明度」使用下拉而非滑条，是因为宿主设置页的滑条不提供精度 /
 > 步进控制，取值会出现长串小数。
+
+配置变更走 `ConfigManager` 的变更监听 → EDT 上 200ms 去抖 → `applyConfig()`，因此
+`cover_tint` / `progress_color` 保存后立即生效，无需重启。
+
+#### ⚠️ 读配置的陷阱：默认值不能传 `null`
+
+宿主的 `ConfigHelper.get(key, defaultValue)` 会按 **defaultValue 的运行时类型**做分支来决定怎么解析
+配置里的 JSON 值；**传入 `null` 会直接命中 default 分支返回 `null`**，等价于「任何配置都读不到」，
+每个设置项都会静默退化成代码里的兜底值（早期版本「自动收起延迟永远是 500ms」就是这个原因）。
+
+因此 `PluginConfig` 采用两层读取：**先用 String 默认值取原始字面量再本地解析**（宿主的 `list`
+存成 JSON 字符串 `"1.5"`、旧滑条存成数字 `3000.0`，这一层都能拿到），再按目标类型取一次兜底
+（兜底默认值必须非空）。`ConfigHelper.reload()` 是直接从磁盘重新 `readString`，缓存的引用不会失效。
 
 ---
 
 ## 五、与宿主的兼容性边界
 
-- 本插件基于 Salt Player for Windows **1.18.5** 开发，桌面歌词开关与主题跟随依赖对宿主**内部
-  实现**的反射调用。**宿主更新后这两项功能有可能失效**（属兼容性风险）；播放器的基本功能
-  （封面、标题、进度、播放控制）不受影响。
+- 本插件基于 Salt Player for Windows **1.18.5** 开发，桌面歌词开关、主题跟随与主窗口唤起依赖对宿主
+  **内部实现**的反射调用。**宿主更新后这三项功能有可能失效**（属兼容性风险）；播放器的基本功能
+  （封面、标题、进度、播放控制、封面主题色、进度条颜色）不受影响。
+- 「主窗口唤起」即使反射失败也还有 AWT 兜底，只是无法把窗口从「最小化到托盘」的状态恢复出来。
 - 插件**不会、也不应分发宿主的任何字节码**。宿主自身的闭源内容不在本仓库与发行包范围内；
   仓库内也不包含从宿主抽取的类（`build/` 已在 `.gitignore` 中忽略）。
 - 宿主相关的事实（目录布局、去重规则、导入与清理行为、JitPack API 面对比）均以本机实测为准；

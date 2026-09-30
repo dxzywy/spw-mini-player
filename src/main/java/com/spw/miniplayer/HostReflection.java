@@ -72,11 +72,36 @@ final class HostReflection {
 
     /** 读取 public static 字段。 */
     static Object staticField(Class<?> type, String name) {
+        java.lang.reflect.Field field = staticFieldHandle(type, name);
+        if (field == null) {
+            return null;
+        }
         try {
-            return type.getField(name).get(null);
+            return field.get(null);
         } catch (Throwable ignored) {
             return null;
         }
+    }
+
+    /**
+     * 取得 public static 字段的句柄；找不到返回 null。
+     *
+     * <p>与 {@link #staticField(Class, String)} 的区别是这里不读取值，
+     * 便于调用方把「触发类初始化」这一步放在自己选定的线程上。
+     */
+    static java.lang.reflect.Field staticFieldHandle(Class<?> type, String name) {
+        try {
+            return type.getField(name);
+        } catch (Throwable ignored) {
+            // 继续扫描
+        }
+        for (java.lang.reflect.Field field : type.getFields()) {
+            if (name.equals(field.getName())
+                    && java.lang.reflect.Modifier.isStatic(field.getModifiers())) {
+                return field;
+            }
+        }
+        return null;
     }
 
     /**

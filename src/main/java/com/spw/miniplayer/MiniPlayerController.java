@@ -7,6 +7,7 @@ import com.xuncorp.spw.workshop.api.config.ConfigManager;
 
 import javax.swing.SwingUtilities;
 import javax.swing.Timer;
+import java.awt.Color;
 import java.awt.Image;
 import java.awt.Rectangle;
 import java.util.concurrent.CountDownLatch;
@@ -59,6 +60,14 @@ final class MiniPlayerController {
 
     private final AtomicInteger lyricsSyncTick = new AtomicInteger();
     private final AtomicInteger themeSyncTick = new AtomicInteger();
+
+    /** 封面主题色提取：逐像素扫描，放后台线程，绝不在 EDT 做。 */
+    private final ExecutorService themeWorker = Executors.newSingleThreadExecutor(runnable -> {
+        Thread thread = new Thread(runnable, "spw-mini-theme");
+        thread.setDaemon(true);
+        thread.setPriority(Thread.MIN_PRIORITY);
+        return thread;
+    });
 
     /** 配置落盘：后台线程 + 去抖，绝不在 EDT 写文件。 */
     private final ExecutorService persistWorker = Executors.newSingleThreadExecutor(runnable -> {
@@ -173,34 +182,28 @@ final class MiniPlayerController {
             }
         }
         persistWorker.shutdownNow();
+        themeWorker.shutdownNow();
     }
 
-    /** 供配置界面按钮调用：显示 / 隐藏小窗。 */
-    void toggleVisible() {
-        onEdt(() -> {
-            if (window == null) {
-                bootstrapOnEdt();
-                return;
-            }
-            window.toggle();
-            boolean shown = window.isShown();
-            toast(shown ? "迷你播放器已显示" : "迷你播放器已隐藏",
-                    shown ? WorkshopApi.Ui.ToastType.Success : WorkshopApi.Ui.ToastType.Warning);
-        });
-    }
-
-    /** 供配置界面按钮调用：收起为封面悬浮窗。 */
-    void collapseToBubble() {
-        onEdt(() -> {
+    /**
+     * 按配置项 {@code mini_player_visible} 显示 / 隐藏小窗（EDT）。
+     *
+     * <p>这个开关是**持久状态**而不是一次性动作：关闭后小窗保持隐藏，直到用户再打开它。
+     */
+    private void applyVisibility() {
+        boolean visible = config == null || config.getBoolean("mini_player_visible", true);
+        if (visible) {
             if (window == null) {
                 bootstrapOnEdt();
                 return;
             }
             if (!window.isShown()) {
                 window.show(true);
+                pushStateToView();
             }
-            window.collapse();
-        });
+        } else if (window != null && window.isShown()) {
+            window.hide();
+        }
     }
 
     private void createUi() {
@@ -226,12 +229,14 @@ final class MiniPlayerController {
             created.setInitialPosition(lastX, lastY);
         }
         targetView.setPanelAlpha(alphaFrom(config.getInt("opacity", 80)));
+        applyCoverTint(config, targetView);
+        applyProgressColor(config, targetView);
         targetView.setDarkTheme(HostThemeBridge.isDark());
 
         window = created;
         view = targetView;
         pushStateToView();
-        created.show(true);
+        applyVisibility();
         PluginLog.i("小窗已创建：" + describeEffectiveConfig(created));
     }
 
@@ -314,6 +319,28 @@ final class MiniPlayerController {
                 target.setCover(image);
             }
         });
+        if (image != null) {
+            try {
+                themeWorker.execute(() -> {
+                    Color dominant = CoverTheme.dominant(image);
+                    onEdt(() -> {
+                        MiniPlayerView target = view;
+                        if (target != null) {
+                            target.setCoverDominant(dominant);
+                        }
+                    });
+                });
+            } catch (Throwable error) {
+                PluginLog.w("提交封面主题色提取失败: " + error);
+            }
+        } else {
+            onEdt(() -> {
+                MiniPlayerView target = view;
+                if (target != null) {
+                    target.setCoverDominant(null);
+                }
+            });
+        }
     }
 
     // ------------------------------------------------------------ 界面动作
@@ -334,6 +361,9 @@ final class MiniPlayerController {
                 break;
             case TOGGLE_LYRICS:
                 toggleDesktopLyrics();
+                break;
+            case OPEN_PLAYER:
+                toggleMainWindow();
                 break;
             case COLLAPSE:
                 collapseWindow();
@@ -361,6 +391,40 @@ final class MiniPlayerController {
         if (target != null) {
             target.expand();
         }
+    }
+
+    /**
+     * 打开 / 收起宿主主播放器窗口，并保持迷你播放器与它联动。
+     *
+     * <p>收起时的行为由宿主的「关闭主窗口」设置决定（见 {@link MainWindowBridge}）：
+     * 设为「最小化到系统托盘」就走宿主的关闭入口；设为「退出应用」时插件只把窗口最小化到
+     * 任务栏，绝不触发退出。
+     *
+     * <p>「联动」包含三件事：
+     * <ol>
+     *   <li>迷你播放器本身不关闭、不收起，位置与贴边状态原样保留；</li>
+     *   <li>切换后立即把宿主侧的歌词开关、深浅色主题再同步一次，
+     *       避免主窗口刚出现时的状态空档；</li>
+     *   <li>后续的播放回调（曲目 / 播放状态 / 进度）照常落到小窗上，
+     *       主窗口与迷你播放器始终显示同一首歌。</li>
+     * </ol>
+     */
+    private void toggleMainWindow() {
+        HostBridgeWorker.submit(() -> {
+            String message = MainWindowBridge.toggle();
+            PluginLog.i("主窗口切换: " + message);
+            onEdt(() -> {
+                MiniWindow target = window;
+                if (target != null) {
+                    target.keepLinked();
+                }
+                pushStateToView();
+                refreshLyricsState();
+                refreshTheme();
+            });
+            toast(message, message.startsWith("已打开")
+                    ? WorkshopApi.Ui.ToastType.Success : WorkshopApi.Ui.ToastType.Warning);
+        });
     }
 
     private void togglePlay() {
@@ -499,6 +563,8 @@ final class MiniPlayerController {
             return;
         }
         current.reload();
+        // 开关可能要求新建 / 隐藏小窗，先处理，再更新其余外观配置
+        applyVisibility();
         MiniWindow target = window;
         if (target == null) {
             return;
@@ -509,6 +575,8 @@ final class MiniPlayerController {
         MiniPlayerView targetView = view;
         if (targetView != null) {
             targetView.setPanelAlpha(alphaFrom(current.getInt("opacity", 80)));
+            applyCoverTint(current, targetView);
+            applyProgressColor(current, targetView);
             targetView.setDarkTheme(HostThemeBridge.isDark());
         }
         target.applyTheme();
@@ -523,11 +591,104 @@ final class MiniPlayerController {
                 : current.getString("last_edge", current.getString("dock_edge", "right"));
         int opacity = current == null ? 80 : current.getInt("opacity", 80);
         return "edge=" + edge
+                + ", visible=" + (current == null || current.getBoolean("mini_player_visible", true))
                 + ", autoHide=" + autoHide
                 + ", hideDelay=" + readHideDelayMs() + "ms"
                 + ", opacity=" + opacity + "%"
+                + ", coverTint=" + (current == null || current.getBoolean("cover_tint", true))
+                + ", progressColor=" + (current == null ? "auto"
+                        : current.getString("progress_color", "auto"))
                 + ", alwaysOnTop=" + (current == null || current.getBoolean("always_on_top", true))
                 + ", compact=" + (target != null && target.isCompact());
+    }
+
+    /** 应用「面板背景跟随封面主题色」开关。 */
+    private void applyCoverTint(PluginConfig current, MiniPlayerView target) {
+        if (current == null || target == null) {
+            return;
+        }
+        target.setCoverTintEnabled(current.getBoolean("cover_tint", true));
+    }
+
+    /**
+     * 应用进度条颜色：配置值是 {@code auto}（跟随封面主题色）或一个十六进制颜色。
+     *
+     * <p>解析失败时退化成「跟随封面」，再退化成主题强调色，绝不让设置项把进度条画没。
+     */
+    private void applyProgressColor(PluginConfig current, MiniPlayerView target) {
+        if (current == null || target == null) {
+            return;
+        }
+        String raw = current.getString("progress_color", "auto");
+        Color parsed = parseColor(raw);
+        if (parsed == null && !isAutoColor(raw)) {
+            PluginLog.w("进度条颜色无法识别，改为跟随封面主题色: " + raw);
+        }
+        target.setProgressColor(parsed, parsed == null);
+    }
+
+    /** auto / 空 / 跟随 等关键字都表示「跟随封面主题色」。 */
+    static boolean isAutoColor(String raw) {
+        if (raw == null) {
+            return true;
+        }
+        String text = raw.trim();
+        return text.isEmpty()
+                || "auto".equalsIgnoreCase(text)
+                || "cover".equalsIgnoreCase(text)
+                || "跟随".equals(text)
+                || "跟随封面".equals(text);
+    }
+
+    /**
+     * 解析 {@code #RGB / #ARGB / #RRGGBB / #AARRGGBB}（{@code #} 可省略），
+     * 关键字或非法输入返回 null。
+     */
+    static Color parseColor(String raw) {
+        if (isAutoColor(raw)) {
+            return null;
+        }
+        String text = raw.trim();
+        String hex = text.startsWith("#") ? text.substring(1) : text;
+        int[] digits = new int[hex.length()];
+        for (int i = 0; i < hex.length(); i++) {
+            int value = Character.digit(hex.charAt(i), 16);
+            if (value < 0) {
+                return null;
+            }
+            digits[i] = value;
+        }
+        int alpha = 255;
+        int r;
+        int g;
+        int b;
+        switch (digits.length) {
+            case 8:
+                alpha = digits[0] * 16 + digits[1];
+                r = digits[2] * 16 + digits[3];
+                g = digits[4] * 16 + digits[5];
+                b = digits[6] * 16 + digits[7];
+                break;
+            case 6:
+                r = digits[0] * 16 + digits[1];
+                g = digits[2] * 16 + digits[3];
+                b = digits[4] * 16 + digits[5];
+                break;
+            case 4:
+                alpha = digits[0] * 17;
+                r = digits[1] * 17;
+                g = digits[2] * 17;
+                b = digits[3] * 17;
+                break;
+            case 3:
+                r = digits[0] * 17;
+                g = digits[1] * 17;
+                b = digits[2] * 17;
+                break;
+            default:
+                return null;
+        }
+        return new Color(r, g, b, alpha);
     }
 
     /** 自动收起延迟：配置以「秒」为单位，兼容旧版毫秒键。 */

@@ -5,18 +5,11 @@
       "config": "config.json",
       "preferences": [
         {
-          "type": "button",
-          "title": "显示 / 隐藏迷你播放器",
-          "summary": "在桌面边缘显示或收起贴边小窗",
-          "arrow_type": "none",
-          "on_click": "com.spw.miniplayer.MiniPlayerPlugin.toggleMiniPlayer"
-        },
-        {
-          "type": "button",
-          "title": "收起为封面小窗",
-          "summary": "立即把迷你播放器收成封面悬浮窗",
-          "arrow_type": "none",
-          "on_click": "com.spw.miniplayer.MiniPlayerPlugin.collapseMiniPlayer"
+          "key": "mini_player_visible",
+          "type": "switch",
+          "title": "显示迷你播放器",
+          "summary": "关闭后小窗会隐藏；重新打开即可让它回到屏幕边缘",
+          "default_value": true
         },
         {
           "key": "auto_hide",
@@ -58,6 +51,20 @@
           "entries": ["0", "10", "20", "30", "40", "50", "60", "70", "80", "90", "100"],
           "entry_values": ["0", "10", "20", "30", "40", "50", "60", "70", "80", "90", "100"],
           "default_value": "80"
+        },
+        {
+          "key": "cover_tint",
+          "type": "switch",
+          "title": "面板背景使用封面主题色",
+          "summary": "展开后自动从当前封面取色作为面板背景；不透明度设置始终叠加生效",
+          "default_value": true
+        },
+        {
+          "key": "progress_color",
+          "type": "edittext",
+          "title": "进度条颜色",
+          "summary": "填 auto 跟随封面主题色，或填 #RRGGBB 自定义（如 #FF4081，也支持 #RGB / #AARRGGBB）；保存后立即生效",
+          "default_value": "auto"
         }
       ]
     }

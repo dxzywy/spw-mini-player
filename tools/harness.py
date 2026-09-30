@@ -157,6 +157,9 @@ def main():
         CP_DIR,
     ]
 
+    if mode in ("features", "all"):
+        # 新功能自检：主窗口唤起 / 进度条自定义色 / 封面主题色叠加不透明度
+        run_main(jdk, "com.spw.miniplayer.FeatureTest", base_cp, [HARNESS])
     if mode in ("preview", "all"):
         run_main(jdk, "com.spw.miniplayer.DevPreview", base_cp, [HARNESS])
     if mode == "live":

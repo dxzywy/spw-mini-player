@@ -41,6 +41,44 @@ public final class AppConfig {
         desktopLyrics = value;
     }
 
+    /**
+     * 模拟「主窗口是否可见」状态。
+     *
+     * <p>与真实宿主一致的要点：读取方法叫 {@code getMainWindowVisible}，
+     * 而写入入口是 {@code updateMainWindowVisible}（同名的 {@code setXxx} 是私有的），
+     * 因此插件必须按这套命名去查找，不能假设一定有公共 setter。
+     */
+    private boolean mainWindowVisible = false;
+
+    public boolean getMainWindowVisible() {
+        return mainWindowVisible;
+    }
+
+    public void updateMainWindowVisible(boolean value) {
+        mainWindowVisible = value;
+    }
+
+    /**
+     * 模拟宿主的「关闭主窗口」策略。
+     *
+     * <p>真实宿主的枚举是 {@code com.xuncorp.voxzen.ui.screen.appearance.CloseMainWindowStrategy}，
+     * 常量为 {@code SystemTray} / {@code ExitProgress}；这里用同名常量即可，因为插件是通过
+     * 反射读 {@code name()} 来判定的，不依赖具体类型。
+     */
+    public enum CloseMainWindowStrategy {
+        ExitProgress, SystemTray
+    }
+
+    private CloseMainWindowStrategy closeMainWindowStrategy = CloseMainWindowStrategy.SystemTray;
+
+    public CloseMainWindowStrategy getCloseMainWindowStrategy() {
+        return closeMainWindowStrategy;
+    }
+
+    public void updateCloseMainWindowStrategy(CloseMainWindowStrategy value) {
+        closeMainWindowStrategy = value;
+    }
+
     /** 模拟 LightDarkTheme 枚举。 */
     public Object getLightDarkTheme() {
         return LightDarkTheme.Dark;

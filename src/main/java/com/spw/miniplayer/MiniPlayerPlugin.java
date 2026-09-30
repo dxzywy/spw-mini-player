@@ -79,35 +79,4 @@ public class MiniPlayerPlugin extends SpwPlugin {
     static MiniPlayerController controller() {
         return controller;
     }
-
-    // ------------------------------------------------- 供配置界面反射调用
-
-    /**
-     * 配置界面的按钮入口：显示 / 隐藏迷你播放器。
-     *
-     * <p>由 {@code preference_config.json} 的 {@code on_click} 指定，
-     * 宿主通过反射调用静态无参方法，因此必须是 {@code public static}。
-     */
-    @SuppressWarnings("unused")
-    public static void toggleMiniPlayer() {
-        MiniPlayerController current = controller;
-        if (current == null) {
-            PluginLog.w("插件尚未启动，无法切换迷你播放器");
-            return;
-        }
-        current.toggleVisible();
-    }
-
-    /**
-     * 配置界面的按钮入口：立即收起为封面悬浮窗。
-     */
-    @SuppressWarnings("unused")
-    public static void collapseMiniPlayer() {
-        MiniPlayerController current = controller;
-        if (current == null) {
-            PluginLog.w("插件尚未启动，无法收起迷你播放器");
-            return;
-        }
-        current.collapseToBubble();
-    }
 }

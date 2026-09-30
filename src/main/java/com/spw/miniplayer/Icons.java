@@ -180,6 +180,28 @@ final class Icons {
         g2.dispose();
     }
 
+    /**
+     * 「打开播放器」图标：一扇窗口 + 窗口里的播放三角。
+     *
+     * <p>语义上区别于 {@link #expand(Graphics2D, Rectangle, Color)}（展开迷你面板），
+     * 这里指的是唤起 Salt Player 主窗口。
+     */
+    static void player(Graphics2D g, Rectangle box, Color color) {
+        Graphics2D g2 = prepare(g, box);
+        g2.setColor(color);
+        g2.setStroke(new BasicStroke(1.8f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+        g2.draw(new RoundRectangle2D.Double(3.6, 4.6, 16.8, 14.8, 3.0, 3.0));
+        // 标题栏分隔线
+        g2.draw(new java.awt.geom.Line2D.Double(3.6, 8.4, 20.4, 8.4));
+        Path2D.Double play = new Path2D.Double();
+        play.moveTo(10.2, 10.6);
+        play.lineTo(15.8, 13.6);
+        play.lineTo(10.2, 16.6);
+        play.closePath();
+        g2.fill(play);
+        g2.dispose();
+    }
+
     /** 把 24×24 坐标系对齐到目标矩形，并开启抗锯齿。 */
     private static Graphics2D prepare(Graphics2D g, Rectangle box) {
         Graphics2D g2 = (Graphics2D) g.create();

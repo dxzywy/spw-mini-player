@@ -31,7 +31,7 @@ final class MiniPlayerView extends JComponent {
 
     /** 可点击元素。 */
     enum Hit {
-        PREVIOUS, TOGGLE_PLAY, NEXT, TOGGLE_LYRICS, CLOSE, COLLAPSE, EXPAND, NONE
+        PREVIOUS, TOGGLE_PLAY, NEXT, TOGGLE_LYRICS, CLOSE, COLLAPSE, EXPAND, OPEN_PLAYER, NONE
     }
 
     /** 收起态的基准坐标系（正方形）。 */
@@ -52,6 +52,7 @@ final class MiniPlayerView extends JComponent {
     private final Rectangle playRect = new Rectangle();
     private final Rectangle nextRect = new Rectangle();
     private final Rectangle lyricsRect = new Rectangle();
+    private final Rectangle openPlayerRect = new Rectangle();
     private final Rectangle closeRect = new Rectangle();
     private final Rectangle coverRect = new Rectangle(COVER_X, COVER_Y, COVER_SIZE, COVER_SIZE);
 
@@ -60,6 +61,7 @@ final class MiniPlayerView extends JComponent {
     private final Rectangle compactPlayRect = new Rectangle();
     private final Rectangle compactNextRect = new Rectangle();
     private final Rectangle compactExpandRect = new Rectangle();
+    private final Rectangle compactOpenRect = new Rectangle();
 
     private String title = "";
     private String subtitle = "";
@@ -75,6 +77,18 @@ final class MiniPlayerView extends JComponent {
     private boolean compact;
     private boolean compactHover;
     private int panelAlpha = Theme.color().panelBg.getAlpha();
+
+    /** 后台线程从封面提取出的主色（可能为 null）。 */
+    private Color coverDominant;
+    /** 由 {@link #coverDominant} 派生的面板底色与进度条色。 */
+    private Color coverTint;
+    private Color coverAccent;
+    /** 是否启用「封面主题色背景」。 */
+    private boolean coverTintEnabled = true;
+    /** 用户自定义的进度条颜色；为 null 时按 {@link #progressFollowCover} 决定。 */
+    private Color progressColor;
+    /** 进度条颜色是否跟随封面主题色。 */
+    private boolean progressFollowCover = true;
 
     private double titleOffset;
     private long titlePauseUntil;
@@ -105,6 +119,54 @@ final class MiniPlayerView extends JComponent {
     void setCover(Image cover) {
         this.cover = cover;
         repaint();
+    }
+
+    /**
+     * 设置从封面提取出的主色（由后台线程算好后投递到 EDT）。
+     *
+     * <p>这里只做廉价的派生运算（HSB 调和），逐像素扫描在
+     * {@link CoverTheme#dominant(Image)} 里已经完成。
+     */
+    void setCoverDominant(Color dominant) {
+        this.coverDominant = dominant;
+        recomputeCoverColors();
+        repaint();
+    }
+
+    /** 是否用封面主题色作为展开态面板背景（不透明度设置始终叠加生效）。 */
+    void setCoverTintEnabled(boolean enabled) {
+        if (this.coverTintEnabled != enabled) {
+            this.coverTintEnabled = enabled;
+            repaint();
+        }
+    }
+
+    /**
+     * 设置进度条颜色。
+     *
+     * @param color       自定义颜色；为 null 表示不指定
+     * @param followCover true 表示在没有自定义颜色时跟随封面主题色
+     */
+    void setProgressColor(Color color, boolean followCover) {
+        this.progressColor = color;
+        this.progressFollowCover = followCover;
+        repaint();
+    }
+
+    private void recomputeCoverColors() {
+        coverTint = CoverTheme.panelTint(coverDominant);
+        coverAccent = CoverTheme.progressAccent(coverDominant);
+    }
+
+    /** 进度条实际使用的颜色：自定义色 &gt; 封面主题色 &gt; 主题强调色。 */
+    private Color effectiveProgressColor() {
+        if (progressColor != null) {
+            return progressColor;
+        }
+        if (progressFollowCover && coverAccent != null) {
+            return coverAccent;
+        }
+        return Theme.color().accent;
     }
 
     void setPlaying(boolean playing) {
@@ -158,6 +220,8 @@ final class MiniPlayerView extends JComponent {
     /** 跟随宿主深色 / 浅色主题。 */
     void setDarkTheme(boolean dark) {
         if (Theme.setDark(dark)) {
+            // 主题色是按当前深浅色调和出来的，换主题后要重新派生
+            recomputeCoverColors();
             repaint();
         }
     }
@@ -194,6 +258,9 @@ final class MiniPlayerView extends JComponent {
             if (compactExpandRect.contains(local)) {
                 return Hit.EXPAND;
             }
+            if (compactOpenRect.contains(local)) {
+                return Hit.OPEN_PLAYER;
+            }
             if (compactPlayRect.contains(local)) {
                 return Hit.TOGGLE_PLAY;
             }
@@ -210,6 +277,9 @@ final class MiniPlayerView extends JComponent {
         }
         if (lyricsRect.contains(point)) {
             return Hit.TOGGLE_LYRICS;
+        }
+        if (openPlayerRect.contains(point)) {
+            return Hit.OPEN_PLAYER;
         }
         if (playRect.contains(point)) {
             return Hit.TOGGLE_PLAY;
@@ -274,6 +344,8 @@ final class MiniPlayerView extends JComponent {
         int smallY = 16;
         closeRect.setBounds(width - PAD - SMALL_SIZE, smallY, SMALL_SIZE, SMALL_SIZE);
         lyricsRect.setBounds(closeRect.x - 6 - SMALL_SIZE, smallY, SMALL_SIZE, SMALL_SIZE);
+        // 「打开播放器」排在歌词按钮左侧，仍落在文本区右侧的空档里
+        openPlayerRect.setBounds(lyricsRect.x - 6 - SMALL_SIZE, smallY, SMALL_SIZE, SMALL_SIZE);
     }
 
     private void layoutCompact() {
@@ -290,6 +362,8 @@ final class MiniPlayerView extends JComponent {
                 small, small);
         int expandSize = 17;
         compactExpandRect.setBounds(size - 6 - expandSize, 6, expandSize, expandSize);
+        // 「打开播放器」与展开按钮分列悬浮层顶部的左右两侧
+        compactOpenRect.setBounds(6, 6, expandSize, expandSize);
     }
 
     // ------------------------------------------------------------------ 绘制
@@ -329,7 +403,11 @@ final class MiniPlayerView extends JComponent {
         RoundRectangle2D panel = new RoundRectangle2D.Double(0.5, 0.5, w - 1.0, h - 1.0,
                 Theme.RADIUS, Theme.RADIUS);
         int hoverAlpha = Math.min(255, panelAlpha + 10);
-        Color fill = hover != Hit.NONE ? Theme.color().panelBgHover : Theme.color().panelBg;
+        /*
+         * 封面主题色只替换 RGB，透明度始终取用户设置的 panelAlpha，
+         * 因此「主题色」与「不透明度」是叠加关系，改任一项都不会冲掉另一项。
+         */
+        Color fill = panelFillColor();
         g.setColor(new Color(fill.getRed(), fill.getGreen(), fill.getBlue(),
                 hover != Hit.NONE ? hoverAlpha : panelAlpha));
         g.fill(panel);
@@ -343,6 +421,14 @@ final class MiniPlayerView extends JComponent {
         paintButtons(g);
         paintProgress(g);
         g.dispose();
+    }
+
+    /** 展开态面板底色：优先封面主题色，其次主题原色（含悬停变体）。 */
+    private Color panelFillColor() {
+        if (coverTintEnabled && coverTint != null) {
+            return coverTint;
+        }
+        return hover != Hit.NONE ? Theme.color().panelBgHover : Theme.color().panelBg;
     }
 
     private void paintCover(Graphics2D g) {
@@ -433,6 +519,8 @@ final class MiniPlayerView extends JComponent {
         boolean lyricsActive = lyricsEnabled && lyricsAvailable;
         paintIconButton(g, lyricsRect, Hit.TOGGLE_LYRICS, lyricsActive,
                 color -> Icons.lyrics(g, inset(lyricsRect, 2), color, lyricsActive));
+        paintIconButton(g, openPlayerRect, Hit.OPEN_PLAYER, false,
+                color -> Icons.player(g, inset(openPlayerRect, 2), color));
         paintIconButton(g, closeRect, Hit.CLOSE, false,
                 color -> Icons.close(g, inset(closeRect, 2), color));
     }
@@ -467,7 +555,7 @@ final class MiniPlayerView extends JComponent {
 
         g.setColor(Theme.color().track);
         g.fill(new RoundRectangle2D.Double(x, y, width, 3, 3, 3));
-        g.setColor(Theme.color().accent);
+        g.setColor(effectiveProgressColor());
         g.fill(new RoundRectangle2D.Double(x, y, width * ratio, 3, 3, 3));
     }
 
@@ -504,10 +592,10 @@ final class MiniPlayerView extends JComponent {
             double width = size - inset * 2;
             g.setColor(new Color(255, 255, 255, 70));
             g.fill(new RoundRectangle2D.Double(inset, size - 12, width, 3.4, 3.4, 3.4));
-            g.setColor(Theme.color().accent);
+            g.setColor(effectiveProgressColor());
             g.fill(new RoundRectangle2D.Double(inset, size - 12, width * ratio, 3.4, 3.4, 3.4));
         } else if (playing) {
-            g.setColor(Theme.color().accent);
+            g.setColor(effectiveProgressColor());
             g.fillOval((int) (size - 24), (int) (size - 24), 11, 11);
             g.setColor(new Color(12, 13, 17, 180));
             g.setStroke(new BasicStroke(2.4f));
@@ -529,12 +617,9 @@ final class MiniPlayerView extends JComponent {
         g.setColor(Theme.hoverScrim());
         g.fill(new RoundRectangle2D.Double(1.5, 1.5, size - 3, size - 3, 18, 18));
 
-        // 顶部提示（靠左，给右上角的展开按钮留出空间）
-        g.setFont(new Font(Theme.subtitle().getFamily(), Font.PLAIN, 9));
-        g.setColor(Theme.hintText());
-        g.drawString("点击展开", 8f, 17f);
-
-        // 四个按钮
+        // 顶部两枚：左侧打开 / 收起主播放器，右侧展开面板
+        paintCompactButton(g, compactOpenRect, Hit.OPEN_PLAYER, false,
+                color -> Icons.player(g, compactOpenRect, color));
         paintCompactButton(g, compactExpandRect, Hit.EXPAND, false,
                 color -> Icons.expand(g, compactExpandRect, color));
 

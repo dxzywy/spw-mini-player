@@ -181,14 +181,6 @@ final class MiniWindow {
         window.setVisible(false);
     }
 
-    void toggle() {
-        if (shown) {
-            hide();
-        } else {
-            show(true);
-        }
-    }
-
     /** 收起到封面悬浮窗。 */
     void collapse() {
         if (!shown || compact) {
@@ -240,6 +232,19 @@ final class MiniWindow {
         int x = Math.min(Math.max(bounds.x, usable.x), usable.x + usable.width - width);
         int y = Math.min(Math.max(bounds.y, usable.y), usable.y + usable.height - height);
         window.setBounds(x, y, width, height);
+    }
+
+    /**
+     * 与外部动作（例如从悬浮窗唤起主播放器）联动。
+     *
+     * <p>保持窗口原样显示，只把「鼠标离开计时」重新起算，
+     * 免得用户点了按钮之后小窗立刻自动收起。
+     */
+    void keepLinked() {
+        if (!shown) {
+            return;
+        }
+        mouseAwaySince = System.currentTimeMillis();
     }
 
     void dispose() {

@@ -81,8 +81,7 @@ final class Theme {
 
     /** 工具栏 / 悬浮层的深色遮罩（盖在封面之上，两套主题都用深色）。 */
     private static final Color SCRIM = new Color(10, 11, 15, 156);
-    /** 悬浮层上的浅色文字与图标。 */
-    private static final Color ON_SCRIM_TEXT = new Color(255, 255, 255, 205);
+    /** 悬浮层上的浅色图标。 */
     private static final Color ON_SCRIM_ICON = new Color(214, 217, 224);
     private static final Color ON_SCRIM_ICON_HOVER = new Color(255, 255, 255);
 
@@ -147,10 +146,6 @@ final class Theme {
 
     static Color hoverScrim() {
         return SCRIM;
-    }
-
-    static Color hintText() {
-        return ON_SCRIM_TEXT;
     }
 
     /** 悬浮层上的图标色（始终为浅色，因为遮罩是深色）。 */

@@ -79,7 +79,7 @@ public final class DevPreview {
 
         System.out.println("== 渲染封面悬浮窗 ==");
         renderCompact(media.resolve("embedded.mp3"), out.resolve("07-bubble-idle.png"),
-                true, 78_000, 269_000);
+                false, 78_000, 269_000);
         renderCompact(media.resolve("embedded.mp3"), out.resolve("08-bubble-hover.png"),
                 true, 78_000, 269_000);
         renderCompact(null, out.resolve("09-bubble-no-cover.png"), false, 0, 0);
@@ -142,7 +142,10 @@ public final class DevPreview {
         MiniPlayerView view = new MiniPlayerView();
         view.setSize(Theme.WIDTH, Theme.HEIGHT);
         if (withCover) {
-            view.setCover(CoverArtLoader.loadAndScale(audioPath.toString(), 128));
+            Image cover = CoverArtLoader.loadAndScale(audioPath.toString(), 128);
+            view.setCover(cover);
+            // 默认开启「封面主题色背景」，预览图反映真实默认外观
+            view.setCoverDominant(CoverTheme.dominant(cover));
         }
         view.setNowPlaying(title, subtitle);
         view.setPlaying(playing);

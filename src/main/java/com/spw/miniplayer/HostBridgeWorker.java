@@ -60,6 +60,7 @@ final class HostBridgeWorker {
             try {
                 DesktopLyricsBridge.resolveNow();
                 HostThemeBridge.resolveNow();
+                MainWindowBridge.resolveNow();
             } catch (Throwable error) {
                 PluginLog.w("解析宿主桥接失败: " + error);
             }
@@ -91,7 +92,9 @@ final class HostBridgeWorker {
      * 定时重试一段时间，避免「一次失败永久降级」。
      */
     private static void scheduleRetryIfNeeded() {
-        boolean bothReady = DesktopLyricsBridge.isAvailable() && HostThemeBridge.isAvailable();
+        boolean bothReady = DesktopLyricsBridge.isAvailable()
+                && HostThemeBridge.isAvailable()
+                && MainWindowBridge.isAvailable();
         if (bothReady || retryScheduled) {
             return;
         }
@@ -114,6 +117,7 @@ final class HostBridgeWorker {
     static String describe() {
         return "prepared=" + PREPARED.get()
                 + ", lyrics=" + DesktopLyricsBridge.isAvailable()
-                + ", theme=" + HostThemeBridge.isAvailable();
+                + ", theme=" + HostThemeBridge.isAvailable()
+                + ", mainWindow=" + MainWindowBridge.isAvailable();
     }
 }
